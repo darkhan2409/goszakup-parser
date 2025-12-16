@@ -354,13 +354,13 @@ def transform_detailed(contracts: List[Dict], plans_dict: Dict) -> pd.DataFrame:
             'Статус договора': contract_status,
             'Способ закупки': procurement_method,
             'Финансовый год': contract.get('finYear', ''),
-            'Общая сумма договора': contract_sum if contract_sum > 0 else None,
             'Наименование позиции': '',
-            'Количество': None,
-            'Плановая цена за единицу': None,
             'Плановая сумма': None,
             'Сумма по договору': None,
-            'Экономия': None
+            'Экономия': None,
+            '': '',  # Пустой столбец-разделитель
+            'Количество': None,
+            'Цена за единицу по договору': None
         }
         rows.append(header_row)
 
@@ -402,13 +402,13 @@ def transform_detailed(contracts: List[Dict], plans_dict: Dict) -> pd.DataFrame:
                     'Статус договора': '',
                     'Способ закупки': '',
                     'Финансовый год': '',
-                    'Общая сумма договора': None,
                     'Наименование позиции': plan_name,
-                    'Количество': unit_qty if unit_qty > 0 else None,
-                    'Плановая цена за единицу': unit_price if unit_price > 0 else None,
                     'Плановая сумма': plan_amount if plan_amount > 0 else None,
                     'Сумма по договору': unit_sum if unit_sum > 0 else None,
-                    'Экономия': savings
+                    'Экономия': savings,
+                    '': '',  # Пустой столбец-разделитель
+                    'Количество': unit_qty if unit_qty > 0 else None,
+                    'Цена за единицу по договору': unit_price if unit_price > 0 else None
                 }
                 rows.append(item_row)
 
@@ -445,8 +445,8 @@ def export_to_excel(df: pd.DataFrame, filename: str, mode: str = 'summary') -> N
     if mode == 'summary':
         numeric_columns = ['Плановая сумма без НДС', 'Сумма без НДС', 'Сумма экономии без НДС']
     else:
-        numeric_columns = ['Общая сумма договора', 'Количество', 'Плановая цена за единицу', 
-                          'Плановая сумма', 'Сумма по договору', 'Экономия']
+        numeric_columns = ['Плановая сумма', 'Сумма по договору', 'Экономия', 
+                          'Количество', 'Цена за единицу по договору']
 
     try:
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
@@ -466,12 +466,25 @@ def export_to_excel(df: pd.DataFrame, filename: str, mode: str = 'summary') -> N
             # Стиль заголовков
             header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
             header_font = Font(name='Times New Roman', bold=True, color='FFFFFF', size=12)
+            
+            # Найти индекс пустого столбца-разделителя
+            empty_col_idx = None
+            for col_idx, cell in enumerate(worksheet[1], 1):
+                if cell.value == '' or cell.value is None:
+                    empty_col_idx = col_idx
+                    break
 
-            for cell in worksheet[1]:
-                cell.font = header_font
-                cell.fill = header_fill
-                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-                cell.border = thin_border
+            for col_idx, cell in enumerate(worksheet[1], 1):
+                # Пустой столбец - без форматирования
+                if col_idx == empty_col_idx:
+                    cell.font = Font(name='Times New Roman', size=12)
+                    cell.fill = PatternFill(fill_type=None)  # Без заливки
+                    cell.border = Border()  # Без границ
+                else:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                    cell.border = thin_border
 
             # Найти индексы числовых колонок и колонки экономии
             col_indices = {}
@@ -504,13 +517,10 @@ def export_to_excel(df: pd.DataFrame, filename: str, mode: str = 'summary') -> N
                             if cell.value is not None and isinstance(cell.value, (int, float)):
                                 cell.number_format = '#,##0.00'
                         
-                        # Цветовое выделение экономии (только отрицательные зна
+                        # Цветовое выделение экономии (только отрицательные)
                         if col_idx == savings_col_idx and cell.value is not None:
                             if isinstance(cell.value, (int, float)):
-                                if cell.value > 0:
-                                    cell.fill = PatternFill(start_color='E8F5E9', end_color='E8F5E9', fill_type='solid')
-                                    cell.font = Font(name='Times New Roman', size=12, color='2E7D32', bold=True)
-                                elif cell.value < 0:
+                                if cell.value < 0:
                                     cell.fill = PatternFill(start_color='FFEBEE', end_color='FFEBEE', fill_type='solid')
                                     cell.font = Font(name='Times New Roman', size=12, color='C62828', bold=True)
 
@@ -525,10 +535,17 @@ def export_to_excel(df: pd.DataFrame, filename: str, mode: str = 'summary') -> N
                     
                     for col in range(1, worksheet.max_column + 1):
                         cell = worksheet.cell(row=idx, column=col)
-                        cell.border = thin_border
-                        cell.fill = fill
-                        cell.alignment = Alignment(vertical='center', wrap_text=True)
-                        cell.font = Font(name='Times New Roman', size=12)
+                        
+                        # Пустой столбец - без форматирования
+                        if col == empty_col_idx:
+                            cell.border = Border()  # Без границ
+                            cell.fill = PatternFill(fill_type=None)  # Без заливки
+                            cell.font = Font(name='Times New Roman', size=12)
+                        else:
+                            cell.border = thin_border
+                            cell.fill = fill
+                            cell.alignment = Alignment(vertical='center', wrap_text=True)
+                            cell.font = Font(name='Times New Roman', size=12)
                         
                         # Форматирование чисел
                         if col in col_indices.values():
@@ -546,16 +563,24 @@ def export_to_excel(df: pd.DataFrame, filename: str, mode: str = 'summary') -> N
             for column in worksheet.columns:
                 max_length = 0
                 column_letter = get_column_letter(column[0].column)
+                
+                # Проверить, является ли это пустым столбцом-разделителем
+                header_value = worksheet.cell(row=1, column=column[0].column).value
+                
+                if header_value == '' or header_value is None:
+                    # Пустой столбец - сделать очень узким
+                    worksheet.column_dimensions[column_letter].width = 2
+                else:
+                    # Обычный столбец - автоматическая ширина
+                    for cell in column:
+                        try:
+                            if cell.value:
+                                max_length = max(max_length, len(str(cell.value)))
+                        except (AttributeError, TypeError, ValueError):
+                            pass
 
-                for cell in column:
-                    try:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-                    except (AttributeError, TypeError, ValueError):
-                        pass
-
-                adjusted_width = min(max_length + 2, 60)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
+                    adjusted_width = min(max_length + 2, 60)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
 
             # Закрепить первую строку и включить автофильтр
             worksheet.freeze_panes = 'A2'
