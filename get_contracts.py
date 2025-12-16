@@ -427,10 +427,10 @@ def transform_detailed(contracts: List[Dict], plans_dict: Dict) -> pd.DataFrame:
 
 
 def export_to_excel(df: pd.DataFrame, filename: str, mode: str = 'summary') -> None:
-    """Экспорт в Excel с форматированием чисел"""
+    """Экспорт в Excel с улучшенным форматированием"""
     print(f"\n💾 Экспорт в {filename}...")
 
-    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
 
     # Удалить служебный столбец
@@ -455,47 +455,92 @@ def export_to_excel(df: pd.DataFrame, filename: str, mode: str = 'summary') -> N
             workbook = writer.book
             worksheet = writer.sheets['Договоры']
 
+            # Границы для ячеек
+            thin_border = Border(
+                left=Side(style='thin', color='CCCCCC'),
+                right=Side(style='thin', color='CCCCCC'),
+                top=Side(style='thin', color='CCCCCC'),
+                bottom=Side(style='thin', color='CCCCCC')
+            )
+
             # Стиль заголовков
             header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
-            header_font = Font(bold=True, color='FFFFFF')
+            header_font = Font(name='Times New Roman', bold=True, color='FFFFFF', size=12)
 
             for cell in worksheet[1]:
                 cell.font = header_font
                 cell.fill = header_fill
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                cell.border = thin_border
 
-            # Найти индексы числовых колонок
+            # Найти индексы числовых колонок и колонки экономии
             col_indices = {}
+            savings_col_idx = None
             for col_idx, cell in enumerate(worksheet[1], 1):
                 if cell.value in numeric_columns:
                     col_indices[cell.value] = col_idx
+                if 'экономи' in str(cell.value).lower():
+                    savings_col_idx = col_idx
 
-            # Форматирование числовых колонок
-            for row_idx in range(2, worksheet.max_row + 1):
-                for col_name, col_idx in col_indices.items():
-                    cell = worksheet.cell(row=row_idx, column=col_idx)
-                    if cell.value is not None and isinstance(cell.value, (int, float)):
-                        if 'Количество' in col_name:
-                            cell.number_format = '#,##0.00'
-                        else:
-                            cell.number_format = '#,##0.00'
+            # Форматирование для сводного режима
+            if mode == 'summary':
+                # Чередующиеся строки (зебра)
+                light_fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+                gray_fill = PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')
+                
+                for row_idx in range(2, worksheet.max_row + 1):
+                    # Чередование цвета
+                    fill = gray_fill if row_idx % 2 == 0 else light_fill
+                    
+                    for col_idx in range(1, worksheet.max_column + 1):
+                        cell = worksheet.cell(row=row_idx, column=col_idx)
+                        cell.border = thin_border
+                        cell.fill = fill
+                        cell.alignment = Alignment(vertical='center', wrap_text=True)
+                        cell.font = Font(name='Times New Roman', size=12)
+                        
+                        # Форматирование чисел
+                        if col_idx in col_indices.values():
+                            if cell.value is not None and isinstance(cell.value, (int, float)):
+                                cell.number_format = '#,##0.00'
+                        
+                        # Цветовое выделение экономии (только отрицательные зна
+                        if col_idx == savings_col_idx and cell.value is not None:
+                            if isinstance(cell.value, (int, float)):
+                                if cell.value > 0:
+                                    cell.fill = PatternFill(start_color='E8F5E9', end_color='E8F5E9', fill_type='solid')
+                                    cell.font = Font(name='Times New Roman', size=12, color='2E7D32', bold=True)
+                                elif cell.value < 0:
+                                    cell.fill = PatternFill(start_color='FFEBEE', end_color='FFEBEE', fill_type='solid')
+                                    cell.font = Font(name='Times New Roman', size=12, color='C62828', bold=True)
 
             # Форматирование для детализированного режима
-            if mode == 'detailed' and row_types:
-                contract_fill = PatternFill(start_color='E8E8E8', end_color='E8E8E8', fill_type='solid')
-                contract_font = Font(bold=True, size=11)
-                item_font = Font(size=10)
+            elif mode == 'detailed' and row_types:
+                header_fill = PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')
+                item_fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
 
                 for idx, row_type in enumerate(row_types, start=2):
-                    if row_type == 'header':
-                        for col in range(1, worksheet.max_column + 1):
-                            cell = worksheet.cell(row=idx, column=col)
-                            cell.fill = contract_fill
-                            cell.font = contract_font
-                    elif row_type == 'item':
-                        for col in range(1, worksheet.max_column + 1):
-                            cell = worksheet.cell(row=idx, column=col)
-                            cell.font = item_font
+                    # Заголовки договоров - серые, позиции - белые
+                    fill = header_fill if row_type == 'header' else item_fill
+                    
+                    for col in range(1, worksheet.max_column + 1):
+                        cell = worksheet.cell(row=idx, column=col)
+                        cell.border = thin_border
+                        cell.fill = fill
+                        cell.alignment = Alignment(vertical='center', wrap_text=True)
+                        cell.font = Font(name='Times New Roman', size=12)
+                        
+                        # Форматирование чисел
+                        if col in col_indices.values():
+                            if cell.value is not None and isinstance(cell.value, (int, float)):
+                                cell.number_format = '#,##0.00'
+                        
+                        # Цветовое выделение экономии (только отрицательные)
+                        if col == savings_col_idx and cell.value is not None:
+                            if isinstance(cell.value, (int, float)):
+                                if cell.value < 0:
+                                    cell.fill = PatternFill(start_color='FFEBEE', end_color='FFEBEE', fill_type='solid')
+                                    cell.font = Font(name='Times New Roman', size=12, color='C62828', bold=True)
 
             # Автоматическая ширина столбцов
             for column in worksheet.columns:
@@ -512,7 +557,9 @@ def export_to_excel(df: pd.DataFrame, filename: str, mode: str = 'summary') -> N
                 adjusted_width = min(max_length + 2, 60)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
 
+            # Закрепить первую строку и включить автофильтр
             worksheet.freeze_panes = 'A2'
+            worksheet.auto_filter.ref = worksheet.dimensions
 
         print(f"✅ Файл сохранён: {filename}")
 
