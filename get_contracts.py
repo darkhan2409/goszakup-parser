@@ -310,6 +310,11 @@ def transform_to_excel_format(contracts: List[Dict[str, Any]], plans_dict: Dict[
         else:
             stats['without_plan'] += 1
 
+        # Вычисление экономии
+        contract_sum_raw = contract.get('contractSum')
+        contract_sum = float(contract_sum_raw) if contract_sum_raw and str(contract_sum_raw).strip() else 0
+        savings = plan_sum - contract_sum if (plan_sum > 0 and contract_sum > 0) else ''
+
         row = {
             '№': i,
             'Номер договора в реестре договоров': contract.get('contractNumberSys', ''),
@@ -320,7 +325,8 @@ def transform_to_excel_format(contracts: List[Dict[str, Any]], plans_dict: Dict[
             'Способ закупки': procurement_method,
             'Финансовый год': contract.get('finYear', ''),
             'Плановая сумма без ндс': plan_sum if plan_sum > 0 else '',
-            'Сумма без ндс': contract.get('contractSum', ''),
+            'Сумма без ндс': contract_sum if contract_sum > 0 else '',
+            'Сумма экономии без ндс': savings,
             'Поставщик': supplier_name,
             'Дата заключения': contract.get('signDate', '')
         }
@@ -362,6 +368,18 @@ def export_to_excel(df: pd.DataFrame, filename: str) -> None:
                 cell.font = header_font
                 cell.fill = header_fill
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+            # Форматирование числовых колонок с разделителями тысяч
+            for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row):
+                # Плановая сумма без ндс (колонка I)
+                if row[8].value and isinstance(row[8].value, (int, float)):
+                    row[8].number_format = '#,##0.00'
+                # Сумма без ндс (колонка J)
+                if row[9].value and isinstance(row[9].value, (int, float)):
+                    row[9].number_format = '#,##0.00'
+                # Сумма экономии без ндс (колонка K)
+                if row[10].value and isinstance(row[10].value, (int, float)):
+                    row[10].number_format = '#,##0.00'
 
             for column in worksheet.columns:
                 max_length = 0
